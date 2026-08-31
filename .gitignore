@@ -1,0 +1,12 @@
+﻿# Backend
+venv/
+__pycache__/
+*.pyc
+habits.db
+
+# Frontend
+node_modules/
+dist/
+
+# Editor
+.vscode/
