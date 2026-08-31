@@ -2,6 +2,10 @@
 
 A full-stack habit tracking app that helps users build consistency by tracking daily habits and calculating streaks.
 
+Habit tracker live :
+ http://localhost:5173
+ 
+
 ## Live Features
 
 - Add and delete habits
