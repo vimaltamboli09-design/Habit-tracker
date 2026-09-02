@@ -32,11 +32,20 @@ def get_db():
 
 @app.post("/habits", response_model=schemas.HabitResponse)
 def create_habit(habit: schemas.HabitCreate, db: Session = Depends(get_db)):
-    new_habit = models.Habit(name=habit.name, target=habit.target)
-    db.add(new_habit)
-    db.commit()
-    db.refresh(new_habit)
-    return new_habit
+    if not habit.name.strip():
+        raise HTTPException(status_code=400, detail="Habit name cannot be empty")
+    if len(habit.name) > 100:
+        raise HTTPException(status_code=400, detail="Habit name too long (max 100 characters)")
+
+    try:
+        new_habit = models.Habit(name=habit.name.strip(), target=habit.target)
+        db.add(new_habit)
+        db.commit()
+        db.refresh(new_habit)
+        return new_habit
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create habit")
 
 
 @app.get("/habits", response_model=List[schemas.HabitResponse])
@@ -69,20 +78,29 @@ def mark_complete(habit_id: int, db: Session = Depends(get_db)):
     if already_done:
         raise HTTPException(status_code=400, detail="Already marked complete today")
 
-    log = models.HabitLog(habit_id=habit_id, date=today)
-    db.add(log)
-    db.commit()
-    return {"message": "Marked complete"}
+    try:
+        log = models.HabitLog(habit_id=habit_id, date=today)
+        db.add(log)
+        db.commit()
+
+        current = calculate_streak(habit_id, db)
+        if current > habit.longest_streak:
+            habit.longest_streak = current
+            db.commit()
+
+        return {"message": "Marked complete"}
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to mark habit complete")
 
 
-@app.get("/habits/{habit_id}/streak", response_model=schemas.StreakResponse)
-def get_streak(habit_id: int, db: Session = Depends(get_db)):
+def calculate_streak(habit_id: int, db: Session) -> int:
     logs = db.query(models.HabitLog).filter(
         models.HabitLog.habit_id == habit_id
     ).order_by(desc(models.HabitLog.date)).all()
 
     if not logs:
-        return schemas.StreakResponse(habit_id=habit_id, current_streak=0, total_completions=0)
+        return 0
 
     dates = [log.date for log in logs]
     streak = 0
@@ -97,8 +115,62 @@ def get_streak(habit_id: int, db: Session = Depends(get_db)):
         else:
             break
 
+    return streak
+
+
+@app.get("/habits/{habit_id}/streak", response_model=schemas.StreakResponse)
+def get_streak(habit_id: int, db: Session = Depends(get_db)):
+    habit = db.query(models.Habit).filter(models.Habit.id == habit_id).first()
+    if not habit:
+        raise HTTPException(status_code=404, detail="Habit not found")
+
+    current = calculate_streak(habit_id, db)
+    total = db.query(models.HabitLog).filter(models.HabitLog.habit_id == habit_id).count()
+
     return schemas.StreakResponse(
         habit_id=habit_id,
-        current_streak=streak,
-        total_completions=len(dates)
+        current_streak=current,
+        total_completions=total,
+        longest_streak=habit.longest_streak
     )
+
+
+@app.get("/habits/{habit_id}/weekly", response_model=schemas.WeeklyViewResponse)
+def get_weekly_view(habit_id: int, db: Session = Depends(get_db)):
+    today = date.today()
+    week_dates = [today - timedelta(days=i) for i in range(6, -1, -1)]  # last 7 days, oldest first
+
+    logs = db.query(models.HabitLog).filter(
+        models.HabitLog.habit_id == habit_id,
+        models.HabitLog.date.in_(week_dates)
+    ).all()
+    completed_dates = {log.date for log in logs}
+
+    days = [
+        {"date": str(d), "completed": d in completed_dates}
+        for d in week_dates
+    ]
+
+    return schemas.WeeklyViewResponse(habit_id=habit_id, days=days)
+@app.get("/habits/{habit_id}/heatmap")
+def get_heatmap(habit_id: int, db: Session = Depends(get_db)):
+    habit = db.query(models.Habit).filter(models.Habit.id == habit_id).first()
+    if not habit:
+        raise HTTPException(status_code=404, detail="Habit not found")
+
+    today = date.today()
+    start_date = today - timedelta(days=89)  # last 90 days
+
+    logs = db.query(models.HabitLog).filter(
+        models.HabitLog.habit_id == habit_id,
+        models.HabitLog.date >= start_date
+    ).all()
+    completed_dates = {log.date for log in logs}
+
+    days = []
+    current = start_date
+    while current <= today:
+        days.append({"date": str(current), "completed": current in completed_dates})
+        current += timedelta(days=1)
+
+    return {"habit_id": habit_id, "days": days}

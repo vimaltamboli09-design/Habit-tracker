@@ -2,6 +2,9 @@
 
 A full-stack habit tracking app that helps users build consistency by tracking daily habits and calculating streaks.
 
+Project LINK 
+ http://localhost:5173
+
 ## Live Features
 
 - Add and delete habits

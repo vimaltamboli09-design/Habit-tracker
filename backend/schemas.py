@@ -25,3 +25,8 @@ class StreakResponse(BaseModel):
     habit_id: int
     current_streak: int
     total_completions: int
+    longest_streak: int
+
+class WeeklyViewResponse(BaseModel):
+    habit_id: int
+    days: List[dict]  # [{"date": "2026-08-25", "completed": True}, ...]    

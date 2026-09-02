@@ -9,6 +9,7 @@ class Habit(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     target = Column(String, default="daily")  # daily or weekly
+    longest_streak = Column(Integer, default=0)
 
     logs = relationship("HabitLog", back_populates="habit")
 
